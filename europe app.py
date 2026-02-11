@@ -2,6 +2,8 @@
 import streamlit as st
 from datetime import date, time
 from urllib.parse import quote_plus
+import csv
+import io
 
 st.set_page_config(page_title="유럽 여행 계획표", layout="wide")
 
@@ -10,24 +12,22 @@ st.set_page_config(page_title="유럽 여행 계획표", layout="wide")
 # ----------------------------
 if "plans" not in st.session_state:
     st.session_state["plans"] = []
+if "seq" not in st.session_state:
+    st.session_state["seq"] = 1  # 항목 고유 ID용
 
 # ----------------------------
 # 무료/키 없는 "후보 사전" (핀란드/포르투갈/스페인)
-# 필요하면 계속 추가 가능
 # ----------------------------
 PLACES = {
     "핀란드": [
-        # 도시/지역
         ("헬싱키", "Helsinki, Finland"),
         ("에스포", "Espoo, Finland"),
         ("탐페레", "Tampere, Finland"),
         ("투르쿠", "Turku, Finland"),
         ("로바니에미", "Rovaniemi, Finland"),
         ("라플란드", "Lapland, Finland"),
-        # 공항
         ("헬싱키 공항", "Helsinki Airport (HEL), Finland"),
         ("로바니에미 공항", "Rovaniemi Airport, Finland"),
-        # 주요 명소
         ("수오멘린나", "Suomenlinna, Helsinki, Finland"),
         ("템펠리아우키오 교회", "Temppeliaukio Church, Helsinki, Finland"),
         ("오디 도서관", "Oodi Library, Helsinki, Finland"),
@@ -41,11 +41,9 @@ PLACES = {
         ("알부페이라", "Albufeira, Portugal"),
         ("라고스", "Lagos, Portugal"),
         ("파티마", "Fátima, Portugal"),
-        # 공항
         ("리스본 공항", "Lisbon Airport (LIS), Portugal"),
         ("포르투 공항", "Porto Airport (OPO), Portugal"),
         ("파루 공항", "Faro Airport (FAO), Portugal"),
-        # 주요 명소
         ("제로니무스 수도원", "Jerónimos Monastery, Lisbon, Portugal"),
         ("벨렝 탑", "Belém Tower, Lisbon, Portugal"),
         ("상 조르제 성", "São Jorge Castle, Lisbon, Portugal"),
@@ -62,12 +60,10 @@ PLACES = {
         ("빌바오", "Bilbao, Spain"),
         ("톨레도", "Toledo, Spain"),
         ("말라가", "Málaga, Spain"),
-        # 공항
         ("바르셀로나 공항", "Barcelona Airport (BCN), Spain"),
         ("마드리드 공항", "Madrid-Barajas Airport (MAD), Spain"),
         ("세비야 공항", "Seville Airport (SVQ), Spain"),
         ("말라가 공항", "Málaga Airport (AGP), Spain"),
-        # 주요 명소
         ("사그라다 파밀리아", "Sagrada Família, Barcelona, Spain"),
         ("구엘 공원", "Park Güell, Barcelona, Spain"),
         ("카사 바트요", "Casa Batlló, Barcelona, Spain"),
@@ -79,7 +75,6 @@ PLACES = {
     ],
 }
 
-# 검색용 전체 리스트(표시명, 지도검색문구, 국가)
 ALL = []
 for country, items in PLACES.items():
     for ko_name, query in items:
@@ -96,7 +91,7 @@ def maps_embed_html(q: str) -> str:
     return f"""
     <iframe
       width="100%"
-      height="260"
+      height="240"
       style="border:0; border-radius:12px;"
       loading="lazy"
       allowfullscreen
@@ -106,45 +101,56 @@ def maps_embed_html(q: str) -> str:
     """
 
 # ----------------------------
+# CSV 다운로드 생성
+# ----------------------------
+def make_csv_bytes(plans):
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["date", "time", "country", "place", "category", "priority", "done", "note", "maps_query"])
+    for p in plans:
+        writer.writerow([p["date"], p["time"], p["country"], p["place"], p["category"], p["priority"], p["done"], p["note"], p["maps_query"]])
+    return output.getvalue().encode("utf-8-sig")
+
+# ----------------------------
 # UI
 # ----------------------------
 st.markdown("<h1 style='text-align:center; margin-bottom: 0.2rem;'>유럽 여행 계획표</h1>", unsafe_allow_html=True)
 st.markdown("<hr/>", unsafe_allow_html=True)
 
-c1, c2, c3 = st.columns([1.2, 2.4, 1.8])
+# 입력(상단)
+c1, c2, c3 = st.columns([1.2, 2.6, 1.8])
+
+CATEGORIES = ["관광", "맛집", "쇼핑", "이동", "숙소", "기타"]
+PRIORITIES = ["필수", "가능", "여유"]
 
 with c1:
     d = st.date_input("날짜", value=date.today())
     t = st.time_input("시간", value=time(9, 0))
+    category = st.selectbox("카테고리", CATEGORIES, index=0)
+    priority = st.selectbox("우선순위", PRIORITIES, index=0)
 
 with c2:
-    # 방문 국가 선택(요청 반영: 핀란드/포르투갈/스페인)
     country_filter = st.multiselect(
         "방문 국가 선택",
         ["핀란드", "포르투갈", "스페인"],
         default=["핀란드", "포르투갈", "스페인"]
     )
+    q = st.text_input("장소 검색(입력하면 후보가 뜹니다)", placeholder="예: 공항 / 리스본 / 사그라다 / helsinki")
 
-    q = st.text_input("장소 검색(입력하면 후보가 뜹니다)", placeholder="예: 리스본 / 공항 / 사그라다 / helsinki")
-
-    # 후보 생성(간단한 부분일치)
     cand = [x for x in ALL if x["country"] in country_filter]
     q_low = q.strip().lower()
 
     if q_low:
         def match_score(item):
-            # 한글/영문 모두 대충 맞추려고 label + query에 대해 점수
             text = (item["label"] + " " + item["query"]).lower()
             if q_low in text:
-                # 더 앞에 나오면 점수 높게
                 return 1000 - text.find(q_low)
             return -1
 
         scored = [(match_score(item), item) for item in cand]
-        cand = [it for s, it in sorted(scored, key=lambda x: x[0], reverse=True) if s >= 0][:20]
+        cand = [it for s, it in sorted(scored, key=lambda x: x[0], reverse=True) if s >= 0][:25]
     else:
-        # 입력이 없으면 국가별 대표만 조금 보여주기
-        cand = cand[:20]
+        cand = cand[:25]
 
     if cand:
         labels = [c["label"] for c in cand]
@@ -160,12 +166,12 @@ with c3:
     if picked_item:
         url = maps_search_url(picked_item["query"])
         st.link_button("Google Maps로 열기", url, use_container_width=True)
-        st.components.v1.html(maps_embed_html(picked_item["query"]), height=280)
-        st.caption("※ 키 없는 버전이라 ‘구글 공식 자동완성’이 아니라, 미리 등록된 후보에서 선택하는 방식입니다.")
+        st.components.v1.html(maps_embed_html(picked_item["query"]), height=260)
+        st.caption("※ 키 없는 버전: 미리 등록된 후보에서 선택하는 방식입니다.")
     else:
         st.caption("왼쪽에서 후보를 선택하면\n여기에 지도 미리보기/링크가 표시됩니다.")
 
-# 가운데 버튼
+# 추가 버튼(가운데)
 l, m, r = st.columns([3, 1.2, 3])
 with m:
     add_clicked = st.button("➕ 일정 추가", use_container_width=True)
@@ -176,52 +182,128 @@ if add_clicked:
     else:
         st.session_state["plans"].append(
             {
+                "id": st.session_state["seq"],
                 "date": str(d),
                 "time": t.strftime("%H:%M"),
                 "place": picked_item["label"].split(" · ")[0],
                 "country": picked_item["country"],
                 "maps_query": picked_item["query"],
                 "note": note.strip(),
+                "category": category,
+                "priority": priority,
+                "done": False,
             }
         )
-        st.success("추가되었습니다! 아래 계획표에 반영됐어요.")
+        st.session_state["seq"] += 1
+        st.success("추가되었습니다! 아래 DAY별 계획에 반영됐어요.")
 
 st.markdown("<hr/>", unsafe_allow_html=True)
 
-# 결과
-st.subheader("일자별 계획")
+# 상단 옵션: 필터/다운로드
+top1, top2, top3, top4 = st.columns([1.4, 1.4, 1.4, 2.4])
 
-if not st.session_state["plans"]:
-    st.info("위에서 날짜/시간/장소를 선택하고 [일정 추가]를 누르면 여기에 쌓입니다.")
+with top1:
+    f_category = st.selectbox("표시 카테고리", ["전체"] + CATEGORIES)
+with top2:
+    f_priority = st.selectbox("표시 우선순위", ["전체"] + PRIORITIES)
+with top3:
+    show_done = st.selectbox("완료 항목", ["전체", "미완료만", "완료만"])
+with top4:
+    if st.session_state["plans"]:
+        csv_bytes = make_csv_bytes(st.session_state["plans"])
+        st.download_button(
+            "⬇️ CSV 다운로드",
+            data=csv_bytes,
+            file_name="europe_trip_plan.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
+# ----------------------------
+# 결과: 날짜별 그룹(DAY1/DAY2…)
+# ----------------------------
+st.subheader("일자별 계획 (DAY별)")
+
+def passes_filters(p):
+    if f_category != "전체" and p["category"] != f_category:
+        return False
+    if f_priority != "전체" and p["priority"] != f_priority:
+        return False
+    if show_done == "미완료만" and p["done"] is True:
+        return False
+    if show_done == "완료만" and p["done"] is False:
+        return False
+    return True
+
+filtered = [p for p in st.session_state["plans"] if passes_filters(p)]
+filtered_sorted = sorted(filtered, key=lambda x: (x["date"], x["time"], x["country"], x["place"]))
+
+if not filtered_sorted:
+    st.info("표시할 일정이 없습니다. (필터를 해제하거나 일정을 추가해 주세요.)")
 else:
-    plans_sorted = sorted(st.session_state["plans"], key=lambda x: (x["date"], x["time"], x["country"], x["place"]))
-    rows = [{"날짜": p["date"], "시간": p["time"], "국가": p["country"], "장소": p["place"], "메모": p["note"]} for p in plans_sorted]
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    dates = sorted({p["date"] for p in filtered_sorted})
+    date_to_day = {d: i + 1 for i, d in enumerate(dates)}
 
-    st.markdown("### 지도 보기")
-    options = [f'{p["date"]} {p["time"]} | {p["place"]} ({p["country"]})' for p in plans_sorted]
-    pick2 = st.selectbox("항목 선택", options)
+    for d0 in dates:
+        day_no = date_to_day[d0]
+        st.markdown(f"## DAY{day_no}  ·  {d0}")
+        st.markdown("---")
 
-    # 선택된 항목 찾기
-    picked_place = pick2.split("|", 1)[1].strip()
-    target = None
-    for p in plans_sorted:
-        label = f'{p["place"]} ({p["country"]})'
-        if label == picked_place:
-            target = p
-            break
+        day_items = [p for p in filtered_sorted if p["date"] == d0]
 
-    if target:
-        url = maps_search_url(target["maps_query"])
-        st.link_button("Google Maps로 열기", url)
-        st.components.v1.html(maps_embed_html(target["maps_query"]), height=280)
+        # 표 + 완료 체크(항목별)
+        # checkbox는 개별 key가 필요
+        for p in day_items:
+            row = st.columns([0.8, 1.1, 1.1, 2.0, 1.2, 1.1, 2.5])
+            # 완료 체크
+            with row[0]:
+                new_done = st.checkbox("완료", value=p["done"], key=f"done_{p['id']}")
+            p["done"] = new_done
 
+            with row[1]:
+                st.markdown(f"**{p['time']}**")
+            with row[2]:
+                st.markdown(p["country"])
+            with row[3]:
+                st.markdown(f"**{p['place']}**")
+            with row[4]:
+                st.markdown(p["category"])
+            with row[5]:
+                st.markdown(p["priority"])
+            with row[6]:
+                if p["note"]:
+                    st.markdown(p["note"])
+                else:
+                    st.markdown("")
+
+        st.markdown("### 지도 보기")
+        options = [f'{p["time"]} | {p["place"]} ({p["country"]})' for p in day_items]
+        pick = st.selectbox(f"DAY{day_no} 항목 선택", options, key=f"pick_{d0}")
+
+        picked_place = pick.split("|", 1)[1].strip()
+        target = None
+        for p in day_items:
+            label = f'{p["place"]} ({p["country"]})'
+            if label == picked_place:
+                target = p
+                break
+
+        if target:
+            url = maps_search_url(target["maps_query"])
+            st.link_button("Google Maps로 열기", url, key=f"link_{d0}")
+            st.components.v1.html(maps_embed_html(target["maps_query"]), height=260)
+
+        st.markdown("<br/>", unsafe_allow_html=True)
+
+# ----------------------------
 # 관리
+# ----------------------------
 st.markdown("<hr/>", unsafe_allow_html=True)
 a, b, c = st.columns([1.2, 1.2, 3])
 with a:
     if st.button("🗑️ 전체 초기화", use_container_width=True):
         st.session_state["plans"] = []
+        st.session_state["seq"] = 1
         st.success("전체 초기화 완료!")
 with b:
     if st.button("❌ 마지막 1개 삭제", use_container_width=True):
@@ -230,4 +312,3 @@ with b:
             st.success("마지막 항목 1개 삭제!")
         else:
             st.info("삭제할 항목이 없습니다.")
-
