@@ -6,24 +6,19 @@ from html import escape
 st.set_page_config(page_title="일일 재고 현황표", layout="wide")
 
 # -------------------------------
-# 1) 레이아웃 정의 (정답지 규칙)
+# 레이아웃 정의
 # -------------------------------
-# 원(18): A10x(6) + A30x(6) + A50x(6)
 CIRCLE_ROWS = [
     ["A101", "A102", "A103", "A104", "A105", "A106"],
     ["A301", "A302", "A303", "A304", "A305", "A306"],
     ["A501", "A502", "A503", "A504", "A505", "A506"],
 ]
 
-# 네모(14): A20x(7) + A40x(7)
 BOX_ROWS = [
     ["A201", "A202", "A203", "A204", "A205", "A206", "A207"],
     ["A401", "A402", "A403", "A404", "A405", "A406", "A407"],
 ]
 
-# -------------------------------
-# 2) 샘플 데이터(초기 표시용)
-# -------------------------------
 DEFAULT_TEXT = """장치장\t곡종\t재고량
 A101\tWUR\t1,600.000
 A102\tWCRS\t1,700.557
@@ -60,24 +55,71 @@ A506\tWUR\t1,700.906
 """
 
 # -------------------------------
-# 3) UI: 데이터 입력(복붙) + 업데이트 버튼
+# 상단 UI 스타일(가운데 정렬)
 # -------------------------------
-st.markdown("### 데이터 입력 (엑셀 복사/붙여넣기)")
+st.markdown(
+    """
+<style>
+/* Streamlit 기본 여백 약간 정리 */
+.block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
 
+/* 입력 섹션 가운데 정렬 */
+.center-wrap{
+  max-width: 980px;
+  margin: 0 auto;
+}
+.center-title{
+  text-align:center;
+  font-weight:900;
+  font-size:28px;
+  margin: 0.2rem 0 0.6rem 0;
+}
+
+/* 버튼 가운데 */
+.center-btn{
+  display:flex;
+  justify-content:center;
+  margin-top: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+/* SVG 전체를 가운데 + 축소 */
+.svg-wrap{
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  margin-top: 8px;
+}
+.svg-scale{
+  transform: scale(0.5);
+  transform-origin: top center;
+}
+</style>
+""",
+    unsafe_allow_html=True
+)
+
+# -------------------------------
+# 데이터 입력(가운데 배치)
+# -------------------------------
 if "raw_text" not in st.session_state:
     st.session_state["raw_text"] = DEFAULT_TEXT
 
+st.markdown('<div class="center-wrap">', unsafe_allow_html=True)
+st.markdown('<div class="center-title">데이터 입력 (엑셀 복사/붙여넣기)</div>', unsafe_allow_html=True)
+
+# ✅ 라벨 숨기기: label_visibility="collapsed"
 raw = st.text_area(
-    "장치장 / 곡종 / 재고량 (3열)",
-    height=90,
+    label="hidden",
+    height=110,
     value=st.session_state["raw_text"],
+    label_visibility="collapsed",
 )
 
-col1, col2 = st.columns([1, 5])
-with col1:
-    update_clicked = st.button("현황표 업데이트")
-with col2:
-    st.caption("엑셀에서 3열(장치장/곡종/재고량) 복사(Ctrl+C) → 붙여넣기(Ctrl+V) → [현황표 업데이트]")
+st.markdown('<div class="center-btn">', unsafe_allow_html=True)
+update_clicked = st.button("현황표 업데이트")
+st.markdown('</div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
 
 if update_clicked:
     st.session_state["raw_text"] = raw
@@ -85,18 +127,13 @@ if update_clicked:
 data_text = st.session_state["raw_text"]
 
 # -------------------------------
-# 4) 파싱: 헤더 자동 무시 + 숫자 예쁘게
+# 파싱(헤더 자동 무시)
 # -------------------------------
 HEADER_WORDS = {"장치장", "곡종", "재고량", "device", "grain", "qty", "quantity"}
 
 def is_header_line(parts):
-    """
-    parts에 헤더 키워드가 섞여 있으면 헤더로 판단
-    """
-    p0 = parts[0].strip().lower()
-    p1 = parts[1].strip().lower() if len(parts) > 1 else ""
-    p2 = parts[2].strip().lower() if len(parts) > 2 else ""
-    return (p0 in HEADER_WORDS) or (p1 in HEADER_WORDS) or (p2 in HEADER_WORDS)
+    p = [x.strip().lower() for x in parts[:3]]
+    return any(x in HEADER_WORDS for x in p)
 
 def parse_rows(text: str):
     rows = []
@@ -113,55 +150,37 @@ def parse_rows(text: str):
         if len(parts) < 3:
             continue
 
-        # ✅ 헤더 자동 무시
-        if is_header_line(parts[:3]):
+        if is_header_line(parts):
             continue
 
         device = parts[0].upper()
         grain = parts[1].upper()
         qty_raw = parts[2]
-
         rows.append((device, grain, qty_raw))
     return rows
 
 def pretty_qty(q: str) -> str:
-    """
-    1,600.000 -> 1,600
-    170.000 -> 170
-    0.000 -> 0
-    """
-    q = q.strip()
-    cleaned = re.sub(r"[^0-9,\.]", "", q)
+    cleaned = re.sub(r"[^0-9,\.]", "", q.strip())
     if cleaned == "":
-        return q
-
+        return ""
     if "." in cleaned:
         cleaned = cleaned.split(".")[0]
-
     cleaned = cleaned.replace(",,", ",").strip(",")
-    if cleaned == "":
-        cleaned = "0"
-    return cleaned
+    return cleaned if cleaned != "" else "0"
 
 rows = parse_rows(data_text)
-
 by_device = {}
 for device, grain, qty_raw in rows:
     by_device[device] = (grain, pretty_qty(qty_raw))
 
-# ✅ 경고 자체를 안 띄우도록: 아래 unknown 체크/표시를 제거했습니다.
-
 # -------------------------------
-# 5) SVG 도면 생성 (정답지 스타일)
+# SVG 생성(정답지 스타일)
 # -------------------------------
 def build_svg():
     W, H = 1400, 720
-
     BG = "#eef0f3"
     TITLE_Y = 80
     UNDERLINE_Y = TITLE_Y + 18
-
-    # 도면 전체(네모+원) 시작 위치
     BOARD_TOP = 185
 
     margin = 70
@@ -173,15 +192,13 @@ def build_svg():
     cols, rows2 = 7, 2
     cell_w = grid_w / cols
     cell_h = grid_h / rows2
-
     R = 78
 
-    x_pos = [grid_x + cell_w * i for i in range(1, cols)]      # 6개
-    y_pos = [grid_y + cell_h * j for j in range(0, rows2 + 1)] # 3개
+    x_pos = [grid_x + cell_w * i for i in range(1, cols)]      # 6
+    y_pos = [grid_y + cell_h * j for j in range(0, rows2 + 1)] # 3
 
     parts = []
-    parts.append(f'<svg viewBox="0 0 {W} {H}" width="100%" xmlns="http://www.w3.org/2000/svg">')
-
+    parts.append(f'<svg viewBox="0 0 {W} {H}" width="{W}" height="{H}" xmlns="http://www.w3.org/2000/svg">')
     parts.append(f'<rect x="0" y="0" width="{W}" height="{H}" fill="{BG}"/>')
 
     # 제목 + 밑줄
@@ -199,17 +216,14 @@ def build_svg():
         f'<rect x="{grid_x}" y="{grid_y}" width="{grid_w}" height="{grid_h}" '
         f'fill="none" stroke="#222" stroke-width="4"/>'
     )
-
-    # 내부 세로 경계 6줄
     for i in range(1, cols):
         x = grid_x + cell_w * i
         parts.append(f'<line x1="{x}" y1="{grid_y}" x2="{x}" y2="{grid_y + grid_h}" stroke="#222" stroke-width="3"/>')
 
-    # 내부 가로 경계 1줄
     y_mid = grid_y + cell_h
     parts.append(f'<line x1="{grid_x}" y1="{y_mid}" x2="{grid_x + grid_w}" y2="{y_mid}" stroke="#222" stroke-width="3"/>')
 
-    # 네모 텍스트: 곡종(빨강) / 재고(검정) / 장치장(회색)
+    # 네모 텍스트(빨강/검정/회색)
     for r_i in range(2):
         for c_i in range(7):
             device = BOX_ROWS[r_i][c_i]
@@ -222,7 +236,7 @@ def build_svg():
             parts.append(f'<text x="{cx}" y="{cy+10}" text-anchor="middle" font-size="24" font-weight="900" fill="#111">{escape(qty)}</text>')
             parts.append(f'<text x="{cx}" y="{cy+38}" text-anchor="middle" font-size="16" font-weight="800" fill="#7a7a7a">{escape(device)}</text>')
 
-    # 원 텍스트: 곡종(파랑) / 재고(검정) / 장치장(회색)
+    # 원 텍스트(파랑/검정/회색)
     for r_i in range(3):
         for c_i in range(6):
             device = CIRCLE_ROWS[r_i][c_i]
@@ -239,4 +253,12 @@ def build_svg():
     parts.append("</svg>")
     return "\n".join(parts)
 
-st.markdown(build_svg(), unsafe_allow_html=True)
+svg = build_svg()
+
+# ✅ SVG를 가운데 + 1/2 축소해서 한 페이지에
+st.markdown(
+    f'<div class="svg-wrap"><div class="svg-scale">{svg}</div></div>',
+    unsafe_allow_html=True
+)
+
+
