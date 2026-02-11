@@ -55,52 +55,24 @@ A506\tWUR\t1,700.906
 """
 
 # -------------------------------
-# 상단 UI 스타일(가운데 정렬)
+# CSS: 가운데 정렬 + SVG 1/2 축소
 # -------------------------------
 st.markdown(
     """
 <style>
-/* Streamlit 기본 여백 약간 정리 */
 .block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
+.center-wrap{ max-width: 980px; margin: 0 auto; }
+.center-title{ text-align:center; font-weight:900; font-size:28px; margin: 0.2rem 0 0.6rem 0; }
 
-/* 입력 섹션 가운데 정렬 */
-.center-wrap{
-  max-width: 980px;
-  margin: 0 auto;
-}
-.center-title{
-  text-align:center;
-  font-weight:900;
-  font-size:28px;
-  margin: 0.2rem 0 0.6rem 0;
-}
-
-/* 버튼 가운데 */
-.center-btn{
-  display:flex;
-  justify-content:center;
-  margin-top: 0.5rem;
-  margin-bottom: 0.6rem;
-}
-
-/* SVG 전체를 가운데 + 축소 */
-.svg-wrap{
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  margin-top: 8px;
-}
-.svg-scale{
-  transform: scale(0.5);
-  transform-origin: top center;
-}
+.svg-wrap{ display:flex; justify-content:center; align-items:flex-start; margin-top: 8px; }
+.svg-scale{ transform: scale(0.5); transform-origin: top center; }
 </style>
 """,
     unsafe_allow_html=True
 )
 
 # -------------------------------
-# 데이터 입력(가운데 배치)
+# 데이터 입력 UI (가운데)
 # -------------------------------
 if "raw_text" not in st.session_state:
     st.session_state["raw_text"] = DEFAULT_TEXT
@@ -108,7 +80,6 @@ if "raw_text" not in st.session_state:
 st.markdown('<div class="center-wrap">', unsafe_allow_html=True)
 st.markdown('<div class="center-title">데이터 입력 (엑셀 복사/붙여넣기)</div>', unsafe_allow_html=True)
 
-# ✅ 라벨 숨기기: label_visibility="collapsed"
 raw = st.text_area(
     label="hidden",
     height=110,
@@ -116,10 +87,12 @@ raw = st.text_area(
     label_visibility="collapsed",
 )
 
-st.markdown('<div class="center-btn">', unsafe_allow_html=True)
-update_clicked = st.button("현황표 업데이트")
-st.markdown('</div>', unsafe_allow_html=True)
-st.markdown('</div>', unsafe_allow_html=True)
+# ✅ 버튼을 "Streamlit 컬럼"으로 가운데 정렬 (가장 안정적)
+left, center, right = st.columns([3, 1, 3])
+with center:
+    update_clicked = st.button("현황표 업데이트", use_container_width=True)
+
+st.markdown("</div>", unsafe_allow_html=True)
 
 if update_clicked:
     st.session_state["raw_text"] = raw
@@ -174,7 +147,7 @@ for device, grain, qty_raw in rows:
     by_device[device] = (grain, pretty_qty(qty_raw))
 
 # -------------------------------
-# SVG 생성(정답지 스타일)
+# SVG 생성 (정답지 스타일)
 # -------------------------------
 def build_svg():
     W, H = 1400, 720
@@ -255,10 +228,8 @@ def build_svg():
 
 svg = build_svg()
 
-# ✅ SVG를 가운데 + 1/2 축소해서 한 페이지에
+# SVG 가운데 + 1/2 축소
 st.markdown(
     f'<div class="svg-wrap"><div class="svg-scale">{svg}</div></div>',
     unsafe_allow_html=True
 )
-
-
